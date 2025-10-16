@@ -1,69 +1,88 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# ============================================
-# 🧬 Conda Setup Script (Termux + Linux)
+# ==========================================================
+# 🧬 Conda + Dev Environment Installer (Termux/Linux)
 # Author: Tony (MuhaliLabs)
-# Purpose: Install Miniconda, configure PATH,
-#          and make Conda globally accessible.
-# ============================================
+# Purpose: Install Miniforge + create AI dev environment
+# ==========================================================
 
 set -e
 
-# --- CONFIG ---
-CONDA_DIR="$HOME/miniconda3"
+CONDA_DIR="$HOME/miniforge3"
 CONDA_BIN="$CONDA_DIR/bin"
 BASHRC="$HOME/.bashrc"
-INSTALLER="Miniconda3-latest-Linux-$(uname -m).sh"
-CONDA_URL="https://repo.anaconda.com/miniconda/$INSTALLER"
+DEV_ENV="dev"
 
 echo ""
-echo "🔍 Checking for existing Conda installation..."
+echo "🚀 Starting Conda (Miniforge) installation..."
+
+# --- STEP 1: Install dependencies ---
+pkg update -y
+pkg install -y curl wget git
+
+# --- STEP 2: Remove old installs ---
 if [ -d "$CONDA_DIR" ]; then
-    echo "⚠️ Conda already installed at $CONDA_DIR"
-    read -p "Do you want to reinstall? (y/N): " confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        rm -rf "$CONDA_DIR"
-    else
-        echo "✅ Skipping installation."
-        exit 0
-    fi
+  echo "⚠️ Removing existing Conda installation..."
+  rm -rf "$CONDA_DIR"
 fi
 
-echo ""
-echo "📦 Downloading Miniconda installer..."
-curl -L -o "$INSTALLER" "$CONDA_URL"
+# --- STEP 3: Download Miniforge ---
+ARCH=$(uname -m)
+INSTALLER="Miniforge3-Linux-${ARCH}.sh"
+URL="https://github.com/conda-forge/miniforge/releases/latest/download/${INSTALLER}"
 
-echo ""
-echo "⚙️ Running installer..."
+echo "📦 Downloading Miniforge for ${ARCH}..."
+curl -L -O "$URL"
+
+# --- STEP 4: Run installer ---
+echo "⚙️ Installing Miniforge..."
 bash "$INSTALLER" -b -p "$CONDA_DIR"
-
-echo ""
-echo "🧹 Cleaning up..."
 rm -f "$INSTALLER"
 
-# --- Add to PATH if not already there ---
+# --- STEP 5: Add to PATH ---
 if ! grep -q "$CONDA_BIN" "$BASHRC"; then
-    echo "🔧 Adding Conda to PATH in $BASHRC..."
-    {
-        echo ""
-        echo "# >>> conda initialize >>>"
-        echo "export PATH=\"$CONDA_BIN:\$PATH\""
-        echo "# <<< conda initialize <<<"
-    } >> "$BASHRC"
+  echo "🔧 Adding Conda to PATH..."
+  echo 'export PATH="$HOME/miniforge3/bin:$PATH"' >> "$BASHRC"
+fi
+source "$BASHRC"
+
+# --- STEP 6: Make Conda global (Termux-specific) ---
+if [ -d "$PREFIX/bin" ]; then
+  ln -sf "$CONDA_BIN/conda" "$PREFIX/bin/conda"
 fi
 
-# --- Initialize Conda ---
-echo ""
-echo "🔄 Initializing Conda..."
-source "$CONDA_BIN/activate"
-"$CONDA_BIN/conda" init bash
+# --- STEP 7: Verify install ---
+echo "✅ Verifying Conda installation..."
+conda --version || { echo "❌ Conda not found!"; exit 1; }
 
-# --- Verify ---
+# --- STEP 8: Create AI Dev environment ---
 echo ""
-echo "✅ Verifying installation..."
-source "$BASHRC"
-conda --version
+echo "🧠 Creating AI development environment: '$DEV_ENV'"
+conda create -y -n $DEV_ENV python=3.10 pip
+
+echo "⚙️ Activating '$DEV_ENV'..."
+source "$CONDA_DIR/etc/profile.d/conda.sh"
+conda activate $DEV_ENV
+
+# --- STEP 9: Install key packages ---
+echo ""
+echo "📚 Installing core AI tools..."
+pip install -U pip setuptools wheel
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install numpy pandas scipy tqdm requests openai whisper moviepy
+pip install yt-dlp ffmpeg-python opencv-python pillow
 
 echo ""
-echo "🎉 Conda installed successfully!"
-echo "👉 Restart your terminal or run: source ~/.bashrc"
-echo "👉 Then test with: conda info"
+echo "✨ Done! Your 'dev' environment includes:"
+echo "    - Python 3.10"
+echo "    - PyTorch CPU build"
+echo "    - Whisper (speech-to-text)"
+echo "    - yt-dlp, ffmpeg-python, moviepy, OpenCV"
+echo "    - numpy, pandas, scipy, tqdm"
+echo ""
+echo "🔧 To activate it anytime, run:"
+echo "    conda activate dev"
+echo ""
+echo "🌙 Restart your terminal or run:"
+echo "    source ~/.bashrc"
+echo ""
+echo "🎉 Installation complete. Happy coding, Tony!"
