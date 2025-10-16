@@ -1,97 +1,99 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ==========================================================
-# 🧬 Termux-safe Conda + AI Dev Environment Installer
+# 🚀 Termux AI Dev Installer (Micromamba + Proot Fallback)
 # Author: Tony (MuhaliLabs)
-# Purpose: Install Miniforge + fix ldd/file issue + create AI dev environment
+# Purpose: Automatic Conda dev env setup in Termux
 # ==========================================================
 
 set -e
-
-CONDA_DIR="$HOME/miniforge3"
-CONDA_BIN="$CONDA_DIR/bin"
-BASHRC="$HOME/.bashrc"
 DEV_ENV="dev"
+MICROMAMBA_DIR="$HOME/micromamba"
+PROOT_DISTRO="ubuntu-20.04"
 
 echo ""
-echo "🚀 Starting Conda (Miniforge) installation for Termux..."
+echo "🌌 Starting Termux AI dev environment setup..."
 
-# --- STEP 1: Termux permissions & dependencies ---
-echo "⚡ Ensuring Termux permissions and dependencies..."
+# --- STEP 1: Ensure permissions and core packages ---
+echo "⚡ Installing prerequisites..."
 termux-setup-storage
 pkg update -y
-pkg install -y curl git wget tar
+pkg install -y curl wget git tar proot-distro
 
-# --- STEP 2: Remove old installs ---
-if [ -d "$CONDA_DIR" ]; then
-  echo "⚠️ Removing existing Conda installation..."
-  rm -rf "$CONDA_DIR"
+# --- STEP 2: Detect working directory ---
+INSTALL_DIR="$HOME"
+echo "📂 Using installer working directory: $INSTALL_DIR"
+
+# --- STEP 3: Try micromamba first ---
+echo ""
+echo "🧪 Attempting Micromamba installation..."
+mkdir -p "$MICROMAMBA_DIR"
+cd "$MICROMAMBA_DIR"
+
+MICROMAMBA_TAR="micromamba.tar.bz2"
+MICROMAMBA_URL="https://micromamba.snakepit.net/api/micromamba/linux-aarch64/latest"
+
+curl -L -o "$MICROMAMBA_TAR" "$MICROMAMBA_URL" || {
+    echo "⚠️ Micromamba download failed. Will attempt proot-distro fallback."
+    MICROMAMBA_FAIL=1
+}
+
+if [ -z "$MICROMAMBA_FAIL" ]; then
+    echo "📦 Extracting micromamba..."
+    tar -xvjf "$MICROMAMBA_TAR" --strip-components=1
+    rm -f "$MICROMAMBA_TAR"
+
+    export MAMBA_ROOT_PREFIX="$MICROMAMBA_DIR"
+    export PATH="$MICROMAMBA_DIR/bin:$PATH"
+
+    ./micromamba --version >/dev/null 2>&1 || MICROMAMBA_FAIL=1
 fi
 
-# --- STEP 3: Download Miniforge (aarch64) ---
-ARCH=$(uname -m)
-INSTALLER="Miniforge3-Linux-${ARCH}.sh"
-URL="https://github.com/conda-forge/miniforge/releases/latest/download/${INSTALLER}"
+# --- STEP 4: Create dev environment with micromamba ---
+if [ -z "$MICROMAMBA_FAIL" ]; then
+    echo "🧠 Creating '$DEV_ENV' environment with micromamba..."
+    ./micromamba create -y -n $DEV_ENV python=3.10 -c conda-forge
+    ./micromamba activate $DEV_ENV
 
-echo "📦 Downloading Miniforge..."
-curl -L -O "$URL"
-chmod +x "$INSTALLER"
+    echo "📚 Installing Python packages..."
+    pip install -U pip setuptools wheel
+    pip install numpy pandas scipy tqdm requests openai whisper torch torchvision torchaudio
+    pip install yt-dlp ffmpeg-python opencv-python pillow
 
-# --- STEP 4: Fix Termux ldd/file permissions ---
-echo "🔧 Patching Termux environment for installer..."
-# Override ldd temporarily to avoid permission errors
-alias ldd="true"
-export PATH="$PREFIX/bin:$PATH"
-unset LD_PRELOAD
-unset LD_LIBRARY_PATH
+    echo ""
+    echo "✅ Micromamba environment setup complete!"
+    echo "💡 Activate anytime with: source $MICROMAMBA_DIR/bin/activate $DEV_ENV"
+    exit 0
+fi
 
-# --- STEP 5: Run installer ---
-echo "⚙️ Installing Miniforge..."
-bash "$INSTALLER" -b -p "$CONDA_DIR"
+# --- STEP 5: Fallback to proot-distro if micromamba fails ---
+echo ""
+echo "⚡ Micromamba failed. Falling back to proot-distro Ubuntu..."
+proot-distro install $PROOT_DISTRO || echo "⚠️ Ubuntu distro already installed."
+proot-distro login $PROOT_DISTRO <<'EOF'
+set -e
+echo "🌌 Inside Ubuntu chroot: Installing Miniforge..."
+apt update && apt install -y curl wget tar bzip2
+
+INSTALLER="Miniforge3-Linux-aarch64.sh"
+curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/$INSTALLER
+bash "$INSTALLER" -b -p ~/miniforge3
 rm -f "$INSTALLER"
+export PATH="$HOME/miniforge3/bin:$PATH"
 
-# --- STEP 6: Add Conda to PATH permanently ---
-if ! grep -q "$CONDA_BIN" "$BASHRC"; then
-  echo "🔧 Adding Conda to PATH in $BASHRC..."
-  echo 'export PATH="$HOME/miniforge3/bin:$PATH"' >> "$BASHRC"
-fi
-source "$BASHRC"
+# Create dev environment
+source ~/miniforge3/etc/profile.d/conda.sh
+conda create -y -n dev python=3.10
+conda activate dev
 
-# --- STEP 7: Make Conda global (Termux-specific) ---
-ln -sf "$CONDA_BIN/conda" "$PREFIX/bin/conda"
-
-# --- STEP 8: Verify install ---
-echo "✅ Verifying Conda installation..."
-conda --version || { echo "❌ Conda not found!"; exit 1; }
-
-# --- STEP 9: Create AI Dev environment ---
-echo ""
-echo "🧠 Creating AI development environment: '$DEV_ENV'"
-source "$CONDA_DIR/etc/profile.d/conda.sh"
-conda create -y -n $DEV_ENV python=3.10
-
-echo "⚙️ Activating '$DEV_ENV'..."
-conda activate $DEV_ENV
-
-# --- STEP 10: Install key AI packages ---
-echo ""
-echo "📚 Installing core AI tools..."
+# Install AI packages
 pip install -U pip setuptools wheel
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install numpy pandas scipy tqdm requests openai whisper moviepy
+pip install numpy pandas scipy tqdm requests openai whisper torch torchvision torchaudio
 pip install yt-dlp ffmpeg-python opencv-python pillow
 
 echo ""
-echo "✨ Done! Your 'dev' environment includes:"
-echo "    - Python 3.10"
-echo "    - PyTorch CPU build"
-echo "    - Whisper (speech-to-text)"
-echo "    - yt-dlp, ffmpeg-python, moviepy, OpenCV"
-echo "    - numpy, pandas, scipy, tqdm"
+echo "✅ Ubuntu proot dev environment ready!"
+echo "💡 Activate inside chroot with: conda activate dev"
+EOF
+
 echo ""
-echo "🔧 To activate it anytime, run:"
-echo "    conda activate dev"
-echo ""
-echo "🌙 Restart your terminal or run:"
-echo "    source ~/.bashrc"
-echo ""
-echo "🎉 Installation complete. Happy coding, Tony!"
+echo "🎉 Setup complete. If micromamba worked, use it directly. Otherwise, run 'proot-distro login $PROOT_DISTRO' to use the dev environment inside Ubuntu."
